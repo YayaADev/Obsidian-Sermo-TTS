@@ -1,5 +1,6 @@
 import { Notice } from 'obsidian';
-import { SermoTTSSettings, TTSResponse, TTSRequest } from './types';
+import { franc } from 'franc';
+import { SermoTTSSettings, TTSResponse, SynthesisRequest, SynthesisResponse, ErrorResponse } from './types';
 import { CONSTANTS } from './constants';
 
 export class SermoTTSService {
@@ -45,12 +46,43 @@ export class SermoTTSService {
     };
   }
 
+  private detectLanguage(text: string): string {
+    const detectedLang = franc(text);
+    
+    // Handle Arabic - always use Egyptian dialect
+    if (detectedLang === 'ara') {
+      return 'ar-EG';
+    }
+    
+    // Map other common language codes to proper locale codes
+    const langMap: Record<string, string> = {
+      'eng': 'en-US',
+      'fra': 'fr-FR',
+      'deu': 'de-DE',
+      'spa': 'es-ES',
+      'ita': 'it-IT',
+      'por': 'pt-BR',
+      'rus': 'ru-RU',
+      'jpn': 'ja-JP',
+      'kor': 'ko-KR',
+      'cmn': 'zh-CN',
+      'hin': 'hi-IN'
+    };
+    
+    return langMap[detectedLang] || 'en-US'; // Default to English US
+  }
+
   private async makeRequest(text: string): Promise<TTSResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.settings.timeout);
 
     try {
-      const requestBody: TTSRequest = { text };
+      const language = this.detectLanguage(text);
+      const requestBody: SynthesisRequest = { 
+        text,
+        language
+      };
+      
       const response = await fetch(this.settings.apiUrl, {
         method: 'POST',
         headers: {
@@ -63,14 +95,33 @@ export class SermoTTSService {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const errorMessage = this.getHttpErrorMessage(response.status);
-        throw new Error(`${errorMessage} (${response.status})`);
+        // Try to parse error response
+        try {
+          const errorResponse: ErrorResponse = await response.json();
+          throw new Error(errorResponse.error?.message || this.getHttpErrorMessage(response.status));
+        } catch {
+          const errorMessage = this.getHttpErrorMessage(response.status);
+          throw new Error(`${errorMessage} (${response.status})`);
+        }
       }
 
-      const audioBlob = await response.blob();
+      const synthesisResponse: SynthesisResponse = await response.json();
+      
+      // Convert base64 audio to blob
+      const audioData = atob(synthesisResponse.audio);
+      const audioArray = new Uint8Array(audioData.length);
+      for (let i = 0; i < audioData.length; i++) {
+        audioArray[i] = audioData.charCodeAt(i);
+      }
+      
+      const audioBlob = new Blob([audioArray], { 
+        type: `audio/${synthesisResponse.audioFormat}` 
+      });
+      
       return {
         success: true,
-        audioBlob
+        audioBlob,
+        response: synthesisResponse
       };
     } catch (error) {
       clearTimeout(timeoutId);
