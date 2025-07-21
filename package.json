@@ -22,7 +22,6 @@
     "typescript": "4.7.4"
   },
   "dependencies": {
-    "@yayaadev/sermo-models": "^1.0.0",
-    "franc": "^6.2.0"
+    "@yayaadev/sermo-models": "^1.0.0"
   }
 }

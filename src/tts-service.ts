@@ -1,5 +1,4 @@
 import { Notice } from 'obsidian';
-import { franc } from 'franc';
 import { SermoTTSSettings, TTSResponse, SynthesisRequest, SynthesisResponse, ErrorResponse } from './types';
 import { CONSTANTS } from './constants';
 
@@ -46,41 +45,15 @@ export class SermoTTSService {
     };
   }
 
-  private detectLanguage(text: string): string {
-    const detectedLang = franc(text);
-    
-    // Handle Arabic - always use Egyptian dialect
-    if (detectedLang === 'ara') {
-      return 'ar-EG';
-    }
-    
-    // Map other common language codes to proper locale codes
-    const langMap: Record<string, string> = {
-      'eng': 'en-US',
-      'fra': 'fr-FR',
-      'deu': 'de-DE',
-      'spa': 'es-ES',
-      'ita': 'it-IT',
-      'por': 'pt-BR',
-      'rus': 'ru-RU',
-      'jpn': 'ja-JP',
-      'kor': 'ko-KR',
-      'cmn': 'zh-CN',
-      'hin': 'hi-IN'
-    };
-    
-    return langMap[detectedLang] || 'en-US'; // Default to English US
-  }
-
   private async makeRequest(text: string): Promise<TTSResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.settings.timeout);
 
     try {
-      const language = this.detectLanguage(text);
+      // Simplified request - let the server handle language detection
       const requestBody: SynthesisRequest = { 
-        text,
-        language
+        text
+        // Removed language field - server will auto-detect
       };
       
       const response = await fetch(this.settings.apiUrl, {
@@ -108,15 +81,7 @@ export class SermoTTSService {
       const synthesisResponse: SynthesisResponse = await response.json();
       
       // Convert base64 audio to blob
-      const audioData = atob(synthesisResponse.audio);
-      const audioArray = new Uint8Array(audioData.length);
-      for (let i = 0; i < audioData.length; i++) {
-        audioArray[i] = audioData.charCodeAt(i);
-      }
-      
-      const audioBlob = new Blob([audioArray], { 
-        type: `audio/${synthesisResponse.audioFormat}` 
-      });
+      const audioBlob = this.createAudioBlob(synthesisResponse.audio, synthesisResponse.audioFormat);
       
       return {
         success: true,
@@ -137,6 +102,19 @@ export class SermoTTSService {
     }
   }
 
+  private createAudioBlob(base64Audio: string, audioFormat: string): Blob {
+    const audioData = atob(base64Audio);
+    const audioArray = new Uint8Array(audioData.length);
+    
+    for (let i = 0; i < audioData.length; i++) {
+      audioArray[i] = audioData.charCodeAt(i);
+    }
+    
+    return new Blob([audioArray], { 
+      type: `audio/${audioFormat}` 
+    });
+  }
+
   private async playAudio(audioBlob: Blob): Promise<void> {
     return new Promise((resolve, reject) => {
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -148,7 +126,7 @@ export class SermoTTSService {
         resolve();
       };
       
-      this.currentAudio.onerror = (error) => {
+      this.currentAudio.onerror = () => {
         URL.revokeObjectURL(audioUrl);
         this.currentAudio = null;
         reject(new Error('Audio playback failed'));

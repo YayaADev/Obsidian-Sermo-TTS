@@ -1,5 +1,4 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
-import { SermoTTSSettings } from './types';
 import { CONSTANTS } from './constants';
 import SermoTTSPlugin from '../main';
 
